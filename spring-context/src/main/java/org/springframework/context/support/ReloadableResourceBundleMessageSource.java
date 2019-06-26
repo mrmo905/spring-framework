@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -115,7 +115,7 @@ public class ReloadableResourceBundleMessageSource extends AbstractResourceBased
 	/**
 	 * Set per-file charsets to use for parsing properties files.
 	 * <p>Only applies to classic properties files, not to XML files.
-	 * @param fileEncodings Properties with filenames as keys and charset
+	 * @param fileEncodings a Properties with filenames as keys and charset
 	 * names as values. Filenames have to match the basename syntax,
 	 * with optional locale-specific components: e.g. "WEB-INF/messages"
 	 * or "WEB-INF/messages_en".
@@ -461,9 +461,8 @@ public class ReloadableResourceBundleMessageSource extends AbstractResourceBased
 	 * @throws IOException if properties loading failed
 	 */
 	protected Properties loadProperties(Resource resource, String filename) throws IOException {
-		InputStream is = resource.getInputStream();
 		Properties props = newProperties();
-		try {
+		try (InputStream is = resource.getInputStream()) {
 			String resourceFilename = resource.getFilename();
 			if (resourceFilename != null && resourceFilename.endsWith(XML_SUFFIX)) {
 				if (logger.isDebugEnabled()) {
@@ -493,9 +492,6 @@ public class ReloadableResourceBundleMessageSource extends AbstractResourceBased
 				}
 			}
 			return props;
-		}
-		finally {
-			is.close();
 		}
 	}
 
@@ -558,7 +554,7 @@ public class ReloadableResourceBundleMessageSource extends AbstractResourceBased
 
 		private final ReentrantLock refreshLock = new ReentrantLock();
 
-		/** Cache to hold already generated MessageFormats per message code */
+		/** Cache to hold already generated MessageFormats per message code. */
 		private final ConcurrentMap<String, Map<Locale, MessageFormat>> cachedMessageFormats =
 				new ConcurrentHashMap<>();
 

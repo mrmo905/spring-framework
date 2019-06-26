@@ -1,11 +1,11 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,17 +20,18 @@ import java.security.Principal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.i18n.LocaleContext;
 import org.springframework.core.ResolvableType;
+import org.springframework.core.codec.Hints;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -65,8 +66,7 @@ public class DefaultServerWebExchange implements ServerWebExchange {
 	private static final ResolvableType FORM_DATA_TYPE =
 			ResolvableType.forClassWithGenerics(MultiValueMap.class, String.class, String.class);
 
-	private static final ResolvableType MULTIPART_DATA_TYPE = ResolvableType.forClassWithGenerics(
-			MultiValueMap.class, String.class, Part.class);
+	private static final ResolvableType PARTS_DATA_TYPE = ResolvableType.forClass(Part.class);
 
 	private static final Mono<MultiValueMap<String, String>> EMPTY_FORM_DATA =
 			Mono.just(CollectionUtils.unmodifiableMultiValueMap(new LinkedMultiValueMap<String, String>(0)))
@@ -91,12 +91,19 @@ public class DefaultServerWebExchange implements ServerWebExchange {
 
 	private final Mono<MultiValueMap<String, Part>> multipartDataMono;
 
+	private final Flux<Part> partFlux;
+
 	@Nullable
 	private final ApplicationContext applicationContext;
 
 	private volatile boolean notModified;
 
 	private Function<String, String> urlTransformer = url -> url;
+
+	@Nullable
+	private Object logId;
+
+	private String logPrefix = "";
 
 
 	public DefaultServerWebExchange(ServerHttpRequest request, ServerHttpResponse response,
@@ -116,18 +123,22 @@ public class DefaultServerWebExchange implements ServerWebExchange {
 		Assert.notNull(codecConfigurer, "'codecConfigurer' is required");
 		Assert.notNull(localeContextResolver, "'localeContextResolver' is required");
 
+		// Initialize before first call to getLogPrefix()
+		this.attributes.put(ServerWebExchange.LOG_ID_ATTRIBUTE, request.getId());
+
 		this.request = request;
 		this.response = response;
 		this.sessionMono = sessionManager.getSession(this).cache();
 		this.localeContextResolver = localeContextResolver;
-		this.formDataMono = initFormData(request, codecConfigurer);
-		this.multipartDataMono = initMultipartData(request, codecConfigurer);
+		this.formDataMono = initFormData(request, codecConfigurer, getLogPrefix());
+		this.partFlux = initParts(request, codecConfigurer, getLogPrefix());
+		this.multipartDataMono = initMultipartData(this.partFlux);
 		this.applicationContext = applicationContext;
 	}
 
 	@SuppressWarnings("unchecked")
 	private static Mono<MultiValueMap<String, String>> initFormData(ServerHttpRequest request,
-			ServerCodecConfigurer configurer) {
+			ServerCodecConfigurer configurer, String logPrefix) {
 
 		try {
 			MediaType contentType = request.getHeaders().getContentType();
@@ -136,7 +147,7 @@ public class DefaultServerWebExchange implements ServerWebExchange {
 						.filter(reader -> reader.canRead(FORM_DATA_TYPE, MediaType.APPLICATION_FORM_URLENCODED))
 						.findFirst()
 						.orElseThrow(() -> new IllegalStateException("No form data HttpMessageReader.")))
-						.readMono(FORM_DATA_TYPE, request, Collections.emptyMap())
+						.readMono(FORM_DATA_TYPE, request, Hints.from(Hints.LOG_PREFIX_HINT, logPrefix))
 						.switchIfEmpty(EMPTY_FORM_DATA)
 						.cache();
 			}
@@ -148,26 +159,32 @@ public class DefaultServerWebExchange implements ServerWebExchange {
 	}
 
 	@SuppressWarnings("unchecked")
-	private static Mono<MultiValueMap<String, Part>> initMultipartData(ServerHttpRequest request,
-			ServerCodecConfigurer configurer) {
-
+	private static Flux<Part> initParts(ServerHttpRequest request, ServerCodecConfigurer configurer, String logPrefix) {
 		try {
 			MediaType contentType = request.getHeaders().getContentType();
 			if (MediaType.MULTIPART_FORM_DATA.isCompatibleWith(contentType)) {
-				return ((HttpMessageReader<MultiValueMap<String, Part>>) configurer.getReaders().stream()
-						.filter(reader -> reader.canRead(MULTIPART_DATA_TYPE, MediaType.MULTIPART_FORM_DATA))
+				return ((HttpMessageReader<Part>)configurer.getReaders().stream()
+						.filter(reader -> reader.canRead(PARTS_DATA_TYPE, MediaType.MULTIPART_FORM_DATA))
 						.findFirst()
 						.orElseThrow(() -> new IllegalStateException("No multipart HttpMessageReader.")))
-						.readMono(MULTIPART_DATA_TYPE, request, Collections.emptyMap())
-						.switchIfEmpty(EMPTY_MULTIPART_DATA)
+						.read(PARTS_DATA_TYPE, request, Hints.from(Hints.LOG_PREFIX_HINT, logPrefix))
 						.cache();
 			}
 		}
 		catch (InvalidMediaTypeException ex) {
 			// Ignore
 		}
-		return EMPTY_MULTIPART_DATA;
+		return Flux.empty();
 	}
+
+	private static Mono<MultiValueMap<String, Part>> initMultipartData(Flux<Part> parts) {
+		return parts.collect(
+				() -> (MultiValueMap<String, Part>) new LinkedMultiValueMap<String, Part>(),
+				(map, part) -> map.add(part.name(), part))
+				.switchIfEmpty(EMPTY_MULTIPART_DATA)
+				.cache();
+	}
+
 
 
 	@Override
@@ -211,6 +228,11 @@ public class DefaultServerWebExchange implements ServerWebExchange {
 	@Override
 	public Mono<MultiValueMap<String, Part>> getMultipartData() {
 		return this.multipartDataMono;
+	}
+
+	@Override
+	public Flux<Part> getParts() {
+		return this.partFlux;
 	}
 
 	@Override
@@ -310,12 +332,19 @@ public class DefaultServerWebExchange implements ServerWebExchange {
 		}
 		// We will perform this validation...
 		etag = padEtagIfNecessary(etag);
-		for (String clientETag : ifNoneMatch) {
+		if (etag.startsWith("W/")) {
+			etag = etag.substring(2);
+		}
+		for (String clientEtag : ifNoneMatch) {
 			// Compare weak/strong ETags as per https://tools.ietf.org/html/rfc7232#section-2.3
-			if (StringUtils.hasLength(clientETag) &&
-					clientETag.replaceFirst("^W/", "").equals(etag.replaceFirst("^W/", ""))) {
-				this.notModified = true;
-				break;
+			if (StringUtils.hasLength(clientEtag)) {
+				if (clientEtag.startsWith("W/")) {
+					clientEtag = clientEtag.substring(2);
+				}
+				if (clientEtag.equals(etag)) {
+					this.notModified = true;
+					break;
+				}
 			}
 		}
 		return true;
@@ -353,6 +382,16 @@ public class DefaultServerWebExchange implements ServerWebExchange {
 	public void addUrlTransformer(Function<String, String> transformer) {
 		Assert.notNull(transformer, "'encoder' must not be null");
 		this.urlTransformer = this.urlTransformer.andThen(transformer);
+	}
+
+	@Override
+	public String getLogPrefix() {
+		Object value = getAttribute(LOG_ID_ATTRIBUTE);
+		if (this.logId != value) {
+			this.logId = value;
+			this.logPrefix = value != null ? "[" + value + "] " : "";
+		}
+		return this.logPrefix;
 	}
 
 }

@@ -1,11 +1,11 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -36,9 +36,9 @@ import org.springframework.util.StringUtils;
  * @author Rossen Stoyanchev
  * @since 5.0
  */
-class DefaultPathContainer implements PathContainer {
+final class DefaultPathContainer implements PathContainer {
 
-	private static final MultiValueMap<String, String> EMPTY_MAP = new LinkedMultiValueMap<>(0);
+	private static final MultiValueMap<String, String> EMPTY_MAP = new LinkedMultiValueMap<>();
 
 	private static final PathContainer EMPTY_PATH = new DefaultPathContainer("", Collections.emptyList());
 
@@ -85,15 +85,17 @@ class DefaultPathContainer implements PathContainer {
 
 	@Override
 	public String toString() {
-		return "[path='" + this.path + "\']";
+		return value();
 	}
 
 
-	static PathContainer createFromUrlPath(String path) {
+	static PathContainer createFromUrlPath(String path, String separator) {
 		if (path.equals("")) {
 			return EMPTY_PATH;
 		}
-		String separator = "/";
+		if (separator.length() == 0) {
+			throw new IllegalArgumentException("separator should not be empty");
+		}
 		Separator separatorElement = separator.equals(SEPARATOR.value()) ? SEPARATOR : () -> separator;
 		List<Element> elements = new ArrayList<>();
 		int begin;
@@ -151,7 +153,7 @@ class DefaultPathContainer implements PathContainer {
 
 	private static void parsePathParamValues(String input, Charset charset, MultiValueMap<String, String> output) {
 		if (StringUtils.hasText(input)) {
-			int index = input.indexOf("=");
+			int index = input.indexOf('=');
 			if (index != -1) {
 				String name = input.substring(0, index);
 				String value = input.substring(index + 1);
@@ -180,9 +182,9 @@ class DefaultPathContainer implements PathContainer {
 			return EMPTY_PATH;
 		}
 
-		Assert.isTrue(fromIndex < toIndex, () -> "fromIndex: " + fromIndex + " should be < toIndex " + toIndex);
 		Assert.isTrue(fromIndex >= 0 && fromIndex < elements.size(), () -> "Invalid fromIndex: " + fromIndex);
 		Assert.isTrue(toIndex >= 0 && toIndex <= elements.size(), () -> "Invalid toIndex: " + toIndex);
+		Assert.isTrue(fromIndex < toIndex, () -> "fromIndex: " + fromIndex + " should be < toIndex " + toIndex);
 
 		List<Element> subList = elements.subList(fromIndex, toIndex);
 		String path = subList.stream().map(Element::value).collect(Collectors.joining(""));
@@ -194,24 +196,19 @@ class DefaultPathContainer implements PathContainer {
 
 		private final String value;
 
-		private final char[] valueAsChars;
-
 		private final String valueToMatch;
 
 		private final char[] valueToMatchAsChars;
 
 		private final MultiValueMap<String, String> parameters;
 
-
-		DefaultPathSegment(String value, String valueToMatch, MultiValueMap<String, String> params) {
+		public DefaultPathSegment(String value, String valueToMatch, MultiValueMap<String, String> params) {
 			Assert.isTrue(!value.contains("/"), () -> "Invalid path segment value: " + value);
 			this.value = value;
-			this.valueAsChars = value.toCharArray();
 			this.valueToMatch = valueToMatch;
 			this.valueToMatchAsChars = valueToMatch.toCharArray();
 			this.parameters = CollectionUtils.unmodifiableMultiValueMap(params);
 		}
-
 
 		@Override
 		public String value() {
@@ -233,7 +230,6 @@ class DefaultPathContainer implements PathContainer {
 			return this.parameters;
 		}
 
-
 		@Override
 		public boolean equals(@Nullable Object other) {
 			if (this == other) {
@@ -251,7 +247,8 @@ class DefaultPathContainer implements PathContainer {
 		}
 
 		public String toString() {
-			return "[value='" + this.value + "']"; }
+			return "[value='" + this.value + "']";
+		}
 	}
 
 }

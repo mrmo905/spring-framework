@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -345,11 +345,11 @@ public class MockHttpServletRequestBuilder
 	 * @since 4.2.4
 	 */
 	public MockHttpServletRequestBuilder params(MultiValueMap<String, String> params) {
-		for (String name : params.keySet()) {
-			for (String value : params.get(name)) {
+		params.forEach((name, values) -> {
+			for (String value : values) {
 				this.parameters.add(name, value);
 			}
-		}
+		});
 		return this;
 	}
 
@@ -414,9 +414,7 @@ public class MockHttpServletRequestBuilder
 	 */
 	public MockHttpServletRequestBuilder sessionAttrs(Map<String, Object> sessionAttributes) {
 		Assert.notEmpty(sessionAttributes, "'sessionAttributes' must not be empty");
-		for (String name : sessionAttributes.keySet()) {
-			sessionAttr(name, sessionAttributes.get(name));
-		}
+		sessionAttributes.forEach(this::sessionAttr);
 		return this;
 	}
 
@@ -436,9 +434,7 @@ public class MockHttpServletRequestBuilder
 	 */
 	public MockHttpServletRequestBuilder flashAttrs(Map<String, Object> flashAttributes) {
 		Assert.notEmpty(flashAttributes, "'flashAttributes' must not be empty");
-		for (String name : flashAttributes.keySet()) {
-			flashAttr(name, flashAttributes.get(name));
-		}
+		flashAttributes.forEach(this::flashAttr);
 		return this;
 	}
 
@@ -534,14 +530,16 @@ public class MockHttpServletRequestBuilder
 			this.contentType = parentBuilder.contentType;
 		}
 
-		for (String headerName : parentBuilder.headers.keySet()) {
+		for (Map.Entry<String, List<Object>> entry : parentBuilder.headers.entrySet()) {
+			String headerName = entry.getKey();
 			if (!this.headers.containsKey(headerName)) {
-				this.headers.put(headerName, parentBuilder.headers.get(headerName));
+				this.headers.put(headerName, entry.getValue());
 			}
 		}
-		for (String paramName : parentBuilder.parameters.keySet()) {
+		for (Map.Entry<String, List<String>> entry : parentBuilder.parameters.entrySet()) {
+			String paramName = entry.getKey();
 			if (!this.parameters.containsKey(paramName)) {
-				this.parameters.put(paramName, parentBuilder.parameters.get(paramName));
+				this.parameters.put(paramName, entry.getValue());
 			}
 		}
 		for (Cookie cookie : parentBuilder.cookies) {
@@ -555,19 +553,22 @@ public class MockHttpServletRequestBuilder
 			}
 		}
 
-		for (String attributeName : parentBuilder.requestAttributes.keySet()) {
+		for (Map.Entry<String, Object> entry : parentBuilder.requestAttributes.entrySet()) {
+			String attributeName = entry.getKey();
 			if (!this.requestAttributes.containsKey(attributeName)) {
-				this.requestAttributes.put(attributeName, parentBuilder.requestAttributes.get(attributeName));
+				this.requestAttributes.put(attributeName, entry.getValue());
 			}
 		}
-		for (String attributeName : parentBuilder.sessionAttributes.keySet()) {
+		for (Map.Entry<String, Object> entry : parentBuilder.sessionAttributes.entrySet()) {
+			String attributeName = entry.getKey();
 			if (!this.sessionAttributes.containsKey(attributeName)) {
-				this.sessionAttributes.put(attributeName, parentBuilder.sessionAttributes.get(attributeName));
+				this.sessionAttributes.put(attributeName, entry.getValue());
 			}
 		}
-		for (String attributeName : parentBuilder.flashAttributes.keySet()) {
+		for (Map.Entry<String, Object> entry : parentBuilder.flashAttributes.entrySet()) {
+			String attributeName = entry.getKey();
 			if (!this.flashAttributes.containsKey(attributeName)) {
-				this.flashAttributes.put(attributeName, parentBuilder.flashAttributes.get(attributeName));
+				this.flashAttributes.put(attributeName, entry.getValue());
 			}
 		}
 
@@ -624,22 +625,22 @@ public class MockHttpServletRequestBuilder
 		request.setContent(this.content);
 		request.setContentType(this.contentType);
 
-		for (String name : this.headers.keySet()) {
-			for (Object value : this.headers.get(name)) {
+		this.headers.forEach((name, values) -> {
+			for (Object value : values) {
 				request.addHeader(name, value);
 			}
-		}
+		});
 
 		if (this.url.getRawQuery() != null) {
 			request.setQueryString(this.url.getRawQuery());
 		}
 		addRequestParams(request, UriComponentsBuilder.fromUri(this.url).build().getQueryParams());
 
-		for (String name : this.parameters.keySet()) {
-			for (String value : this.parameters.get(name)) {
+		this.parameters.forEach((name, values) -> {
+			for (String value : values) {
 				request.addParameter(name, value);
 			}
-		}
+		});
 
 		if (this.content != null && this.content.length > 0) {
 			String requestContentType = request.getContentType();
@@ -652,20 +653,18 @@ public class MockHttpServletRequestBuilder
 		}
 
 		if (!ObjectUtils.isEmpty(this.cookies)) {
-			request.setCookies(this.cookies.toArray(new Cookie[this.cookies.size()]));
+			request.setCookies(this.cookies.toArray(new Cookie[0]));
 		}
 		if (!ObjectUtils.isEmpty(this.locales)) {
 			request.setPreferredLocales(this.locales);
 		}
 
-		for (String name : this.requestAttributes.keySet()) {
-			request.setAttribute(name, this.requestAttributes.get(name));
-		}
-		for (String name : this.sessionAttributes.keySet()) {
+		this.requestAttributes.forEach(request::setAttribute);
+		this.sessionAttributes.forEach((name, attribute) -> {
 			HttpSession session = request.getSession();
 			Assert.state(session != null, "No HttpSession");
-			session.setAttribute(name, this.sessionAttributes.get(name));
-		}
+			session.setAttribute(name, attribute);
+		});
 
 		FlashMap flashMap = new FlashMap();
 		flashMap.putAll(this.flashAttributes);
